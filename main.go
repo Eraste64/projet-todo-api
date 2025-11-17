@@ -34,7 +34,7 @@ type User struct {
 
 func main() {
 	var err error
-	// --- Init DB ---
+	// --- Création de la BDD ---
 	db, err = sql.Open("sqlite", "todo.db")
 	if err != nil {
 		log.Fatal(err)
@@ -62,13 +62,13 @@ func main() {
 		fmt.Println("Admin créé : admin@admin.com / admin123")
 	}
 
-	// --- Init logs ---
+	// --- Création des logs pour suivre toutes les opérations ---
 	logFile, _ = os.OpenFile("app.log", os.O_APPEND|os.O_CREATE|os.O_WRONLY, 0644)
 	errorFile, _ = os.OpenFile("error.log", os.O_APPEND|os.O_CREATE|os.O_WRONLY, 0644)
 	defer logFile.Close()
 	defer errorFile.Close()
 
-	r := gin.Default()
+	r := gin.Default() // crée un serveur web tout prêt avec Gin
 	r.Use(LoggerMiddleware())
 
 	// --- Ping ---
@@ -77,27 +77,27 @@ func main() {
 	})
 
 	// --- Auth ---
-	r.POST("/user/register", Register)
-	r.POST("/user/login", Login)
+	r.POST("/user/register", Register) // creer un compte
+	r.POST("/user/login", Login)       // se connecter
 
-	// --- User routes ---
-	r.PUT("/me", AuthMiddleware(), UpdateMeHandler)
-	r.PUT("/admin/users/:id", AuthMiddlewareAdmin(), AdminUpdateUserHandler)
+	// --- Routes pour mettre à jour les informations ---
+	r.PUT("/me", AuthMiddleware(), UpdateMeHandler)                          // mettre à jour son propre profil
+	r.PUT("/admin/users/:id", AuthMiddlewareAdmin(), AdminUpdateUserHandler) // admin modifie un utilisateur
 
-	// --- Task routes ---
+	// --- Routes pour exécuter les taches ---
 	auth := r.Group("/", AuthMiddleware())
-	auth.GET("/tasks", GetTasks)
-	auth.GET("/tasks/:id", GetTask)
-	auth.POST("/tasks", CreateTask)
-	auth.PUT("/tasks/:id", UpdateTask)
-	auth.DELETE("/tasks/:id", DeleteTask)
-	auth.PUT("/tasks", BatchUpdateTasks)
-	auth.DELETE("/tasks", BatchDeleteTasks)
+	auth.GET("/tasks", GetTasks)            // lister toutes les tâches
+	auth.GET("/tasks/:id", GetTask)         // voir une tâche précise
+	auth.POST("/tasks", CreateTask)         // créer une tâche
+	auth.PUT("/tasks/:id", UpdateTask)      // modifier une tâche
+	auth.DELETE("/tasks/:id", DeleteTask)   // supprimer une tâche
+	auth.PUT("/tasks", BatchUpdateTasks)    // modifier plusieurs tâches à la fois
+	auth.DELETE("/tasks", BatchDeleteTasks) // supprimer plusieurs tâches à la fois
 
 	// --- Admin ---
 	r.DELETE("/reset", AuthMiddlewareAdmin(), ResetDB)
 
-	// --- Start server ---
+	// --- Lancer le server ---
 	port := os.Getenv("PORT")
 	if port == "" {
 		port = "8080"
@@ -106,41 +106,48 @@ func main() {
 	r.Run(":" + port)
 }
 
-// ================= Logging Middleware =================
+// ================= Ecrire dans les fichiers logs =================
 func LoggerMiddleware() gin.HandlerFunc {
 	return func(c *gin.Context) {
-		clientIP := c.ClientIP()
-		method := c.Request.Method
-		path := c.Request.URL.Path
+		clientIP := c.ClientIP()   // Récupère l'adresse IP du client
+		method := c.Request.Method // Récupère la méthode HTTP
+		path := c.Request.URL.Path // Récupère le chemin de la requête
 
-		c.Next()
+		// Avant de traiter la requête
 
-		status := c.Writer.Status()
-		line := fmt.Sprintf("[%s] %s %s -> %d\n", clientIP, method, path, status)
-		logFile.WriteString(line)
-		if status >= 400 {
+		c.Next() // Traite la requête
+
+		// Après avoir traité la requête
+
+		status := c.Writer.Status()                                               // Récupère le code de statut HTTP
+		line := fmt.Sprintf("[%s] %s %s -> %d\n", clientIP, method, path, status) // Formate la ligne de log
+		logFile.WriteString(line)                                                 // Écrit dans le fichier de log
+		if status >= 400 {                                                        // Si c'est une erreur, écrit aussi dans error.log
 			errorFile.WriteString(line)
 		}
 	}
 }
 
-// ================= Auth Handlers =================
+// ================= Auth Handlers (fonctions avec requette HTTP) =================
+
+// Inscription
 func Register(c *gin.Context) {
 	var u User
-	if err := c.ShouldBindJSON(&u); err != nil {
+	if err := c.ShouldBindJSON(&u); err != nil { // lie le JSON reçu à la structure User
 		c.JSON(400, gin.H{"error": err.Error()})
 		return
 	}
-	hash, _ := bcrypt.GenerateFromPassword([]byte(u.Password), bcrypt.DefaultCost)
+	hash, _ := bcrypt.GenerateFromPassword([]byte(u.Password), bcrypt.DefaultCost) // hash le mot de passe
 	_, err := db.Exec("INSERT INTO users(name,email,password,isAdmin) VALUES(?,?,?,0)", u.Name, u.Email, string(hash))
-	if err != nil {
+	if err != nil { // erreur si email déjà utilisé
 		c.JSON(400, gin.H{"error": "email déjà utilisé"})
 		return
 	}
-	token, _ := GenerateJWT(u.Email)
-	c.JSON(200, gin.H{"token": token})
+	token, _ := GenerateJWT(u.Email)   // génère un token JWT
+	c.JSON(200, gin.H{"token": token}) // renvoie le token au client
 }
 
+// Connexion
 func Login(c *gin.Context) {
 	var req struct {
 		Email    string `json:"email"`
@@ -151,12 +158,12 @@ func Login(c *gin.Context) {
 		return
 	}
 	var u User
-	err := db.QueryRow("SELECT id,name,email,password,isAdmin FROM users WHERE email=?", req.Email).Scan(&u.ID, &u.Name, &u.Email, &u.Password, &u.IsAdmin)
+	err := db.QueryRow("SELECT id,name,email,password,isAdmin FROM users WHERE email=?", req.Email).Scan(&u.ID, &u.Name, &u.Email, &u.Password, &u.IsAdmin) // cherche l'utilisateur par email
 	if err != nil {
 		c.JSON(401, gin.H{"error": "utilisateur inconnu"})
 		return
 	}
-	if bcrypt.CompareHashAndPassword([]byte(u.Password), []byte(req.Password)) != nil {
+	if bcrypt.CompareHashAndPassword([]byte(u.Password), []byte(req.Password)) != nil { // compare le mot de passe
 		c.JSON(401, gin.H{"error": "mot de passe incorrect"})
 		return
 	}
@@ -165,6 +172,8 @@ func Login(c *gin.Context) {
 }
 
 // ================= JWT =================
+
+// Générer un token JWT
 func GenerateJWT(email string) (string, error) {
 	claims := jwt.MapClaims{
 		"email": email,
@@ -174,6 +183,7 @@ func GenerateJWT(email string) (string, error) {
 	return tok.SignedString(jwtKey)
 }
 
+// Middleware pour routes protégées (utilisateur connecté)
 func AuthMiddleware() gin.HandlerFunc {
 	return func(c *gin.Context) {
 		auth := c.GetHeader("Authorization")
@@ -197,6 +207,7 @@ func AuthMiddleware() gin.HandlerFunc {
 	}
 }
 
+// Middleware pour vérifier si l'utilisateur est admin
 func AuthMiddlewareAdmin() gin.HandlerFunc {
 	return func(c *gin.Context) {
 		auth := c.GetHeader("Authorization")
@@ -225,6 +236,8 @@ func AuthMiddlewareAdmin() gin.HandlerFunc {
 }
 
 // ================= User Handlers =================
+
+// Mettre à jour son propre profil
 func UpdateMeHandler(c *gin.Context) {
 	userID := c.GetInt("uid")
 	var body struct {
@@ -246,7 +259,7 @@ func UpdateMeHandler(c *gin.Context) {
 		    email = COALESCE(NULLIF(?,''), email),
 		    password = COALESCE(NULLIF(?,''), password)
 		WHERE id = ?`,
-		body.Name, body.Email, body.Password, userID)
+		body.Name, body.Email, body.Password, userID) // met à jour les infos
 	if err != nil {
 		c.JSON(500, gin.H{"error": "database error"})
 		return
@@ -254,6 +267,7 @@ func UpdateMeHandler(c *gin.Context) {
 	c.JSON(200, gin.H{"message": "profile updated"})
 }
 
+// Admin modifie un utilisateur (sauf un autre admin)
 func AdminUpdateUserHandler(c *gin.Context) {
 	id := c.Param("id")
 	var body struct {
@@ -266,7 +280,7 @@ func AdminUpdateUserHandler(c *gin.Context) {
 		return
 	}
 	var isAdmin bool
-	err := db.QueryRow("SELECT isAdmin FROM users WHERE id = ?", id).Scan(&isAdmin)
+	err := db.QueryRow("SELECT isAdmin FROM users WHERE id = ?", id).Scan(&isAdmin) // vérifie si l'utilisateur est admin
 	if err != nil {
 		c.JSON(404, gin.H{"error": "user not found"})
 		return
@@ -294,6 +308,8 @@ func AdminUpdateUserHandler(c *gin.Context) {
 }
 
 // ================= Tasks Handlers =================
+
+// Lister toutes les tâches (avec option de recherche)
 func GetTasks(c *gin.Context) {
 	query := c.Query("query")
 	var rows *sql.Rows
@@ -318,6 +334,7 @@ func GetTasks(c *gin.Context) {
 	c.JSON(200, tasks)
 }
 
+// Voir une tâche précise
 func GetTask(c *gin.Context) {
 	id := c.Param("id")
 	var t Task
@@ -329,6 +346,7 @@ func GetTask(c *gin.Context) {
 	c.JSON(200, t)
 }
 
+// Créer une tâche
 func CreateTask(c *gin.Context) {
 	var t Task
 	if err := c.ShouldBindJSON(&t); err != nil {
@@ -341,6 +359,7 @@ func CreateTask(c *gin.Context) {
 	c.JSON(200, t)
 }
 
+// Modifier une tâche
 func UpdateTask(c *gin.Context) {
 	id := c.Param("id")
 	var t Task
@@ -357,6 +376,7 @@ func UpdateTask(c *gin.Context) {
 	c.JSON(200, t)
 }
 
+// Supprimer une tâche
 func DeleteTask(c *gin.Context) {
 	id := c.Param("id")
 	_, err := db.Exec("DELETE FROM tasks WHERE id=?", id)
@@ -368,6 +388,8 @@ func DeleteTask(c *gin.Context) {
 }
 
 // ================= Batch =================
+
+// Mettre à jour plusieurs tâches à la fois
 func BatchUpdateTasks(c *gin.Context) {
 	var tasks []Task
 	if err := c.ShouldBindJSON(&tasks); err != nil {
@@ -380,6 +402,7 @@ func BatchUpdateTasks(c *gin.Context) {
 	c.JSON(200, gin.H{"updated": len(tasks)})
 }
 
+// Supprimer plusieurs tâches à la fois
 func BatchDeleteTasks(c *gin.Context) {
 	var ids []int
 	if err := c.ShouldBindJSON(&ids); err != nil {
@@ -393,6 +416,8 @@ func BatchDeleteTasks(c *gin.Context) {
 }
 
 // ================= Admin =================
+
+// Réinitialiser la base de données (supprimer toutes les tâches)
 func ResetDB(c *gin.Context) {
 	db.Exec("DELETE FROM tasks")
 	c.JSON(200, gin.H{"message": "BDD réinitialisée"})
