@@ -4,7 +4,6 @@ import (
 	"database/sql"
 	"fmt"
 	"log"
-	"net/http"
 	"os"
 	"strconv"
 	"time"
@@ -72,6 +71,7 @@ func main() {
 	r := gin.Default()
 	r.Use(LoggerMiddleware())
 
+	// --- Ping ---
 	r.GET("/ping", func(c *gin.Context) {
 		c.JSON(200, gin.H{"message": "pong"})
 	})
@@ -97,8 +97,13 @@ func main() {
 	// --- Admin ---
 	r.DELETE("/reset", AuthMiddlewareAdmin(), ResetDB)
 
-	fmt.Println("Server running at http://localhost:8080")
-	r.Run(":8080")
+	// --- Start server ---
+	port := os.Getenv("PORT")
+	if port == "" {
+		port = "8080"
+	}
+	fmt.Println("Server running on port", port)
+	r.Run(":" + port)
 }
 
 // ================= Logging Middleware =================
@@ -123,17 +128,17 @@ func LoggerMiddleware() gin.HandlerFunc {
 func Register(c *gin.Context) {
 	var u User
 	if err := c.ShouldBindJSON(&u); err != nil {
-		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+		c.JSON(400, gin.H{"error": err.Error()})
 		return
 	}
 	hash, _ := bcrypt.GenerateFromPassword([]byte(u.Password), bcrypt.DefaultCost)
 	_, err := db.Exec("INSERT INTO users(name,email,password,isAdmin) VALUES(?,?,?,0)", u.Name, u.Email, string(hash))
 	if err != nil {
-		c.JSON(http.StatusBadRequest, gin.H{"error": "email déjà utilisé"})
+		c.JSON(400, gin.H{"error": "email déjà utilisé"})
 		return
 	}
 	token, _ := GenerateJWT(u.Email)
-	c.JSON(http.StatusOK, gin.H{"token": token})
+	c.JSON(200, gin.H{"token": token})
 }
 
 func Login(c *gin.Context) {
@@ -142,28 +147,28 @@ func Login(c *gin.Context) {
 		Password string `json:"password"`
 	}
 	if err := c.ShouldBindJSON(&req); err != nil {
-		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+		c.JSON(400, gin.H{"error": err.Error()})
 		return
 	}
 	var u User
 	err := db.QueryRow("SELECT id,name,email,password,isAdmin FROM users WHERE email=?", req.Email).Scan(&u.ID, &u.Name, &u.Email, &u.Password, &u.IsAdmin)
 	if err != nil {
-		c.JSON(http.StatusUnauthorized, gin.H{"error": "utilisateur inconnu"})
+		c.JSON(401, gin.H{"error": "utilisateur inconnu"})
 		return
 	}
 	if bcrypt.CompareHashAndPassword([]byte(u.Password), []byte(req.Password)) != nil {
-		c.JSON(http.StatusUnauthorized, gin.H{"error": "mot de passe incorrect"})
+		c.JSON(401, gin.H{"error": "mot de passe incorrect"})
 		return
 	}
 	token, _ := GenerateJWT(u.Email)
-	c.JSON(http.StatusOK, gin.H{"token": token})
+	c.JSON(200, gin.H{"token": token})
 }
 
 // ================= JWT =================
 func GenerateJWT(email string) (string, error) {
 	claims := jwt.MapClaims{
 		"email": email,
-		"exp":   time.Now().Add(time.Hour * 72).Unix(),
+		"exp":   time.Now().Add(72 * time.Hour).Unix(),
 	}
 	tok := jwt.NewWithClaims(jwt.SigningMethodHS256, claims)
 	return tok.SignedString(jwtKey)
@@ -173,22 +178,18 @@ func AuthMiddleware() gin.HandlerFunc {
 	return func(c *gin.Context) {
 		auth := c.GetHeader("Authorization")
 		if len(auth) < 7 || auth[:7] != "Bearer " {
-			c.AbortWithStatusJSON(http.StatusUnauthorized, gin.H{"error": "missing token"})
+			c.AbortWithStatusJSON(401, gin.H{"error": "missing token"})
 			return
 		}
 		tokenStr := auth[7:]
 		tok, err := jwt.Parse(tokenStr, func(t *jwt.Token) (interface{}, error) {
-			if _, ok := t.Method.(*jwt.SigningMethodHMAC); !ok {
-				return nil, fmt.Errorf("unexpected signing method")
-			}
 			return jwtKey, nil
 		})
 		if err != nil || !tok.Valid {
-			c.AbortWithStatusJSON(http.StatusUnauthorized, gin.H{"error": "invalid token"})
+			c.AbortWithStatusJSON(401, gin.H{"error": "invalid token"})
 			return
 		}
 		claims := tok.Claims.(jwt.MapClaims)
-		// Stocker uid pour UpdateMe
 		var userID int
 		db.QueryRow("SELECT id FROM users WHERE email=?", claims["email"]).Scan(&userID)
 		c.Set("uid", userID)
@@ -200,18 +201,15 @@ func AuthMiddlewareAdmin() gin.HandlerFunc {
 	return func(c *gin.Context) {
 		auth := c.GetHeader("Authorization")
 		if len(auth) < 7 || auth[:7] != "Bearer " {
-			c.AbortWithStatusJSON(http.StatusUnauthorized, gin.H{"error": "missing token"})
+			c.AbortWithStatusJSON(401, gin.H{"error": "missing token"})
 			return
 		}
 		tokenStr := auth[7:]
 		tok, err := jwt.Parse(tokenStr, func(t *jwt.Token) (interface{}, error) {
-			if _, ok := t.Method.(*jwt.SigningMethodHMAC); !ok {
-				return nil, fmt.Errorf("unexpected signing method")
-			}
 			return jwtKey, nil
 		})
 		if err != nil || !tok.Valid {
-			c.AbortWithStatusJSON(http.StatusUnauthorized, gin.H{"error": "invalid token"})
+			c.AbortWithStatusJSON(401, gin.H{"error": "invalid token"})
 			return
 		}
 		claims := tok.Claims.(jwt.MapClaims)
@@ -219,7 +217,7 @@ func AuthMiddlewareAdmin() gin.HandlerFunc {
 		var isAdmin bool
 		db.QueryRow("SELECT isAdmin FROM users WHERE email=?", email).Scan(&isAdmin)
 		if !isAdmin {
-			c.AbortWithStatusJSON(http.StatusForbidden, gin.H{"error": "admin only"})
+			c.AbortWithStatusJSON(403, gin.H{"error": "admin only"})
 			return
 		}
 		c.Next()

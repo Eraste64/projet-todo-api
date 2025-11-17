@@ -1,0 +1,123 @@
+### ================= Users / Auth =================
+
+# Register a new user
+POST http://localhost:8080/user/register
+Content-Type: application/json
+
+{
+  "name": "John Doe",
+  "email": "john@example.com",
+  "password": "secret123"
+}
+
+###
+
+# Login
+POST http://localhost:8080/user/login
+Content-Type: application/json
+
+{
+  "email": "john@example.com",
+  "password": "secret123"
+}
+
+###
+
+# Update my profile (replace <TOKEN> with JWT)
+PUT http://localhost:8080/me
+Authorization: Bearer <TOKEN>
+Content-Type: application/json
+
+{
+  "name": "John Updated",
+  "email": "john.new@example.com",
+  "password": "newpass123"
+}
+
+###
+
+# Admin updates a user (replace <ADMIN_TOKEN> and <USER_ID>)
+PUT http://localhost:8080/admin/users/<USER_ID>
+Authorization: Bearer <ADMIN_TOKEN>
+Content-Type: application/json
+
+{
+  "name": "Updated by Admin",
+  "email": "updated@example.com",
+  "password": "adminpass"
+}
+
+### ================= Tasks =================
+
+# Create a task
+POST http://localhost:8080/tasks
+Authorization: Bearer <TOKEN>
+Content-Type: application/json
+
+{
+  "title": "Faire les courses",
+  "done": false
+}
+
+###
+
+# List all tasks
+GET http://localhost:8080/tasks
+Authorization: Bearer <TOKEN>
+
+###
+
+# Get task by ID
+GET http://localhost:8080/tasks/1
+Authorization: Bearer <TOKEN>
+
+###
+
+# Search tasks by title
+GET http://localhost:8080/tasks?query=courses
+Authorization: Bearer <TOKEN>
+
+###
+
+# Update a task by ID
+PUT http://localhost:8080/tasks/1
+Authorization: Bearer <TOKEN>
+Content-Type: application/json
+
+{
+  "title": "Faire les courses et le ménage",
+  "done": true
+}
+
+###
+
+# Delete a task by ID
+DELETE http://localhost:8080/tasks/1
+Authorization: Bearer <TOKEN>
+
+###
+
+# Batch update tasks
+PUT http://localhost:8080/tasks
+Authorization: Bearer <TOKEN>
+Content-Type: application/json
+
+[
+  {"id":2,"title":"Tâche 2 mise à jour","done":true},
+  {"id":3,"title":"Tâche 3 mise à jour","done":false}
+]
+
+###
+
+# Batch delete tasks
+DELETE http://localhost:8080/tasks
+Authorization: Bearer <TOKEN>
+Content-Type: application/json
+
+[2,3]
+
+### ================= Admin =================
+
+# Reset database (tasks only)
+DELETE http://localhost:8080/reset
+Authorization: Bearer <ADMIN_TOKEN>
